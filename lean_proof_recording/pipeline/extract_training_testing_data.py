@@ -1,10 +1,9 @@
-from pathlib import Path
-import pandas as pd
-from tqdm import tqdm
 import json
+from pathlib import Path
 
+import pandas as pd
 from lean_proof_recording.dhash import get_split
-
+from tqdm import tqdm
 
 RAW_TRACED_DATA_DIR = "raw_traced_data"
 EXTRACTED_PROOF_DATA_DIR = "extracted_proof_data"
@@ -12,10 +11,12 @@ CLEANED_TRAINING_DATA_DIR = "cleaned_training_data"
 
 
 def gather_data_for_model(
-    tactic_state_goal: pd.DataFrame,
-    tactic_state: pd.DataFrame,
-    tactics: pd.DataFrame,
-    no_solve1: bool,
+        tactic_state_goal: pd.DataFrame,
+        tactic_state: pd.DataFrame,
+        tactics: pd.DataFrame,
+        no_solve1: bool,
+        train_threshold: float,
+        valid_threshold: float,
 ):
     # take first goal in each tactic state
     df = tactic_state_goal.copy()
@@ -68,7 +69,7 @@ def gather_data_for_model(
     # train-test-validate split based on decl_name
 
     decl_names = df["decl_name"].unique()
-    tvt = [get_split(nm) for nm in decl_names]
+    tvt = [get_split(nm, train_threshold=train_threshold, valid_threshold=valid_threshold) for nm in decl_names]
     tvt_split = pd.Series(tvt, index=decl_names)
     df["split"] = df["decl_name"].map(tvt_split)
     # tvt =
@@ -91,6 +92,8 @@ def _parse_main():
     parser.add_argument("data_dir")
     parser.add_argument("--no-solve1", action="store_true", dest="no_solve1")
     parser.add_argument("--sexp", action="store_true", dest="sexp")
+    parser.add_argument("--train_threshold", type=float, default=0.92)
+    parser.add_argument("--valid_threshold", type=float, default=0.96)
     return parser.parse_args()
 
 
@@ -115,7 +118,8 @@ def main():
     # process
     print("[extract_training_test_data] PROCESSING TO FULL DATA")
     full_data = gather_data_for_model(
-        tactic_state_goal, tactic_state, tactics, no_solve1=opts.no_solve1
+        tactic_state_goal, tactic_state, tactics, no_solve1=opts.no_solve1,
+        train_threshold=opts.train_threshold, valid_threshold=opts.valid_threshold,
     )
 
     # save to files
@@ -143,8 +147,8 @@ def main():
                         for idx, row in tqdm(data_split.iterrows(), total=len(data_split.index)):
                             # discard solve1s applied to only 1 goal to avoid duplication
                             if (
-                                row["tactic_class"] == "solve1"
-                                and row["cleaned_goal"].count(goal_tk) == 1
+                                    row["tactic_class"] == "solve1"
+                                    and row["cleaned_goal"].count(goal_tk) == 1
                             ):
                                 skip_count += 1
                                 continue
@@ -162,16 +166,16 @@ def main():
                             src_handle.write(example_src + "\n")
                             tgt_handle.write(example_tgt + "\n")
                             if (
-                                row["decl_name"] in example_name_set
-                                or row["decl_name"] == "_example"
+                                    row["decl_name"] in example_name_set
+                                    or row["decl_name"] == "_example"
                             ):
                                 pass
                             else:
                                 name_handle.write(example_name + "\n")
                                 example_name_set.add(row["decl_name"])
                             name_index_entry = (
-                                json.dumps(dict(src=row["cleaned_goal"], decl_nm=row["decl_name"]))
-                                + "\n"
+                                    json.dumps(dict(src=row["cleaned_goal"], decl_nm=row["decl_name"]))
+                                    + "\n"
                             )
                             name_index_handle.write(name_index_entry)
 
